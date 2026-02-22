@@ -77,4 +77,10 @@ export const api = {
     },
   },
   nowplaying: (artist) => request(`/api/nowplaying/${artist}`),
+  admin: {
+    browse: (dirPath) =>
+      request(`/api/admin/browse?path=${encodeURIComponent(dirPath || '/')}`),
+    validatePath: (dirPath) =>
+      request(`/api/admin/validate-path?path=${encodeURIComponent(dirPath || '')}`),
+  },
 };

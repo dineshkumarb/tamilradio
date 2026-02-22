@@ -15,6 +15,7 @@ import libraryRoutes from './routes/library.js';
 import nowplayingRoutes from './routes/nowplaying.js';
 import authRoutes from './routes/auth.js';
 import artistRoutes from './routes/artists.js';
+import adminRoutes from './routes/admin.js';
 import { setIo, broadcastNowPlaying } from './services/socketBroadcast.js';
 import { getAuthDb } from './db/index.js';
 
@@ -39,6 +40,7 @@ async function main() {
   app.use('/api/artists', artistRoutes);
   app.use('/api/stream', streamRoutes);
   app.use('/api/library', libraryRoutes);
+  app.use('/api/admin', adminRoutes);
   app.use('/api/nowplaying', nowplayingRoutes);
 
   // Production: serve built frontend and SPA fallback

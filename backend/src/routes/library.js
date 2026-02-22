@@ -8,13 +8,14 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 const router = Router();
 
 async function getMusicPath(artistSlug) {
+  const key = artistSlug === 'ilayaraja' ? 'ILAYARAJA_MUSIC_PATH' : artistSlug === 'arrahman' ? 'ARRAHMAN_MUSIC_PATH' : null;
+  const fromEnv = key && process.env[key];
+  const envPath = typeof fromEnv === 'string' ? fromEnv.trim() : '';
+  if (envPath) return envPath;
   const artistDb = getArtistDb();
   const pathFromDb = await artistDb.getMusicPath(artistSlug);
   if (pathFromDb) return pathFromDb.trim();
-  const key = artistSlug === 'ilayaraja' ? 'ILAYARAJA_MUSIC_PATH' : artistSlug === 'arrahman' ? 'ARRAHMAN_MUSIC_PATH' : null;
-  if (!key) return null;
-  const value = process.env[key];
-  return (typeof value === 'string' ? value : '').trim();
+  return null;
 }
 
 async function isValidArtist(slug) {
