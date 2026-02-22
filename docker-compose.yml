@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3030}:3030"
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 3030
+      DATABASE_URL: postgres://tamilradio:${POSTGRES_PASSWORD:-tamilradio}@db:5432/tamilradio
+      ILAYARAJA_MUSIC_PATH: /music/ilayaraja
+      ARRAHMAN_MUSIC_PATH: /music/arrahman
+    volumes:
+      - app-uploads:/app/backend/uploads
+      - "${ILAYARAJA_MUSIC_PATH:-./music/ilayaraja}:/music/ilayaraja:ro"
+      - "${ARRAHMAN_MUSIC_PATH:-./music/arrahman}:/music/arrahman:ro"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tamilradio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tamilradio}
+      POSTGRES_DB: tamilradio
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tamilradio -d tamilradio"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  app-uploads:
