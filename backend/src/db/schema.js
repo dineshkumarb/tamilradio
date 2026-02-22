@@ -4,6 +4,8 @@
  */
 
 export async function initSchema(pool) {
+  // Step 1: Create tables (IF NOT EXISTS is a no-op for existing tables,
+  // so new columns are added via migrations below)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -79,13 +81,18 @@ export async function initSchema(pool) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_media_artist ON media(artist);
-    CREATE INDEX IF NOT EXISTS idx_media_artist_slug ON media(artist_slug);
     CREATE INDEX IF NOT EXISTS idx_media_album ON media(album);
     CREATE INDEX IF NOT EXISTS idx_media_genre ON media(genre);
     CREATE INDEX IF NOT EXISTS idx_media_title ON media(title);
   `);
 
+  // Step 2: Run migrations (adds columns to existing tables, merges songs→media)
   await runMigrations(pool);
+
+  // Step 3: Create indexes that depend on columns added by migrations.
+  // Safe to run here because the migration has already ensured the columns exist.
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_media_artist_slug ON media(artist_slug)');
+
   await seedArtists(pool);
 }
 
@@ -101,7 +108,6 @@ async function runMigrations(pool) {
   await run('002_songs_drop_artist_check', () => Promise.resolve());
 
   await run('003_merge_songs_into_media', async (p) => {
-    // Add new columns to media if they don't exist (for DBs created before this migration)
     const addCol = async (col, type) => {
       try { await p.query(`ALTER TABLE media ADD COLUMN ${col} ${type}`); } catch (_) {}
     };
@@ -109,10 +115,8 @@ async function runMigrations(pool) {
     await addCol('album_art_base64', 'TEXT');
     await addCol('album_art_url', 'TEXT');
 
-    // Add artist_slug to library_roots if missing
     try { await p.query('ALTER TABLE library_roots ADD COLUMN artist_slug TEXT'); } catch (_) {}
 
-    // Migrate songs → media if songs table exists
     const { rows } = await p.query(`
       SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'songs')
     `);
@@ -126,8 +130,6 @@ async function runMigrations(pool) {
       `);
       await p.query('DROP TABLE songs');
     }
-
-    await p.query('CREATE INDEX IF NOT EXISTS idx_media_artist_slug ON media(artist_slug)');
   });
 }
 
