@@ -11,7 +11,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { openDb, getArtistDb } from './db/index.js';
 import streamRoutes from './routes/stream.js';
-import libraryRoutes from './routes/library.js';
+import libraryRoutes, { setLibraryIo } from './routes/library.js';
 import nowplayingRoutes from './routes/nowplaying.js';
 import authRoutes from './routes/auth.js';
 import artistRoutes from './routes/artists.js';
@@ -46,6 +46,7 @@ async function main() {
   app.use('/api/media', mediaLibraryRoutes);
 
   setMediaIo(io);
+  setLibraryIo(io);
 
   // Production: serve built frontend and SPA fallback
   const publicDir = path.join(__dirname, '../public');

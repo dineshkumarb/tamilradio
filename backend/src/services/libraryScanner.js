@@ -1,73 +1,49 @@
-import { readdirSync, statSync, existsSync, createReadStream } from 'fs';
+import { readdir, stat } from 'fs/promises';
 import path from 'path';
-import { parseFile, parseStream } from 'music-metadata';
+import { parseFile } from 'music-metadata';
 import { getDbQueries } from '../db/index.js';
 
-const EXT = new Set(['.mp3', '.flac', '.m4a', '.wav']);
-const MIME_BY_EXT = {
-  '.mp3': 'audio/mpeg',
-  '.flac': 'audio/flac',
-  '.m4a': 'audio/mp4',
-  '.wav': 'audio/wav',
-};
+const EXT = new Set(['.mp3', '.flac', '.m4a', '.wav', '.aac', '.ogg', '.opus', '.wma']);
 
-function* walkDir(dir, base = dir) {
+async function* walkDir(dir) {
   let entries;
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    entries = await readdir(dir, { withFileTypes: true });
   } catch (err) {
-    throw new Error(`Cannot read music directory "${dir}": ${err.code || err.message}. Check that the path exists and is readable (e.g. volume mount and permissions).`);
+    throw new Error(`Cannot read music directory "${dir}": ${err.code || err.message}.`);
   }
   for (const e of entries) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
-      yield* walkDir(full, base);
+      yield* walkDir(full);
     } else if (EXT.has(path.extname(e.name).toLowerCase())) {
       yield full;
     }
   }
 }
 
-async function parseMetadata(filePath, options = { duration: true }) {
+async function parseMetadata(filePath) {
   try {
-    return await parseFile(filePath, options);
-  } catch (fileErr) {
-    const code = fileErr.code || '';
-    const msg = fileErr.message || '';
-    if (code === 'EACCES' || code === 'EPERM' || msg.includes('permission') || msg.includes('access')) {
-      throw new Error(`Permission denied reading file: ${filePath}`);
-    }
-    if (code === 'ENOENT') {
-      throw new Error(`File not found: ${filePath}`);
-    }
-    if (code === 'EISDIR') {
-      throw new Error(`Path is a directory, not a file: ${filePath}`);
-    }
-    try {
-      const ext = path.extname(filePath).toLowerCase();
-      const mime = MIME_BY_EXT[ext] || 'application/octet-stream';
-      const stream = createReadStream(filePath);
-      const meta = await parseStream(stream, { mimeType: mime }, options);
-      return meta;
-    } catch (streamErr) {
-      const fallbackMsg = streamErr.code ? `${streamErr.code}: ${streamErr.message}` : streamErr.message;
-      throw new Error(`Failed to read metadata: ${fallbackMsg}`);
-    }
+    return await parseFile(filePath, { duration: true });
+  } catch {
+    return null;
   }
 }
 
-export async function scanArtist(artist, musicPath) {
+/**
+ * Scan a single artist directory and upsert into the unified media table.
+ * Sets artist_slug so the stream manager and artist views can filter.
+ * Optionally emits Socket.IO progress events.
+ */
+export async function scanArtist(artistSlug, musicPath, io) {
   const resolved = path.resolve(musicPath);
-  if (!existsSync(resolved)) {
-    throw new Error(`Music path does not exist: ${resolved}. Set the correct path in Admin → Artists or ILAYARAJA_MUSIC_PATH / ARRAHMAN_MUSIC_PATH in .env. In Docker, use the path inside the container (e.g. /music/ilayaraja) and ensure the host folder is mounted.`);
-  }
-  let stat;
+  let s;
   try {
-    stat = statSync(resolved);
+    s = await stat(resolved);
   } catch (err) {
-    throw new Error(`Cannot access music path "${resolved}": ${err.code || err.message}. Check volume mount and permissions.`);
+    throw new Error(`Cannot access music path "${resolved}": ${err.code || err.message}.`);
   }
-  if (!stat.isDirectory()) {
+  if (!s.isDirectory()) {
     throw new Error(`Music path is not a directory: ${resolved}`);
   }
 
@@ -77,34 +53,52 @@ export async function scanArtist(artist, musicPath) {
   let updated = 0;
   const parseErrors = [];
 
-  for (const filePath of walkDir(resolved)) {
+  const emit = (event, data) => { if (io) io.emit(event, data); };
+
+  // Discover all files first for progress tracking
+  const files = [];
+  for await (const filePath of walkDir(resolved)) {
+    files.push(filePath);
+  }
+  const totalFiles = files.length;
+
+  for (let i = 0; i < totalFiles; i++) {
+    const filePath = files[i];
     const normalized = path.normalize(filePath);
     seen.add(normalized);
-    const existing = await q.getByFilePath(normalized);
-    let meta;
-    try {
-      meta = await parseMetadata(normalized, { duration: true });
-    } catch (err) {
-      const msg = err.message || String(err);
-      console.warn('Failed to parse', normalized, msg);
-      parseErrors.push({ file: normalized, error: msg });
+
+    emit('scan:progress', {
+      current: i + 1,
+      total: totalFiles,
+      percent: Math.round(((i + 1) / totalFiles) * 100),
+      file: path.basename(filePath),
+    });
+
+    const meta = await parseMetadata(normalized);
+    if (!meta) {
+      parseErrors.push({ file: normalized, error: 'Failed to parse metadata' });
       continue;
     }
+
     const common = meta.common;
     const format = meta.format;
-    const duration = format.duration != null ? Math.round(format.duration) : null;
+    const fileStat = await stat(normalized).catch(() => null);
+    const duration = format.duration != null ? Math.round(format.duration * 100) / 100 : null;
+
     let albumArtBase64 = null;
-    if (common.picture && common.picture.length) {
+    if (common.picture?.length) {
       const pic = common.picture[0];
-      const data = pic.data;
-      const hasData = data && (data.length > 100);
-      if (hasData) {
-        const b64 = Buffer.isBuffer(data) ? data.toString('base64') : Buffer.from(data).toString('base64');
+      if (pic.data?.length > 100) {
+        const b64 = Buffer.isBuffer(pic.data) ? pic.data.toString('base64') : Buffer.from(pic.data).toString('base64');
         if (b64.length > 0) albumArtBase64 = `data:${pic.format};base64,${b64}`;
       }
     }
+
+    const existing = await q.getByFilePath(normalized);
+
     const song = {
-      artist,
+      artist_slug: artistSlug,
+      artist: common.artist || artistSlug,
       file_path: normalized,
       title: common.title || path.basename(normalized, path.extname(normalized)),
       album: common.album ?? null,
@@ -114,6 +108,7 @@ export async function scanArtist(artist, musicPath) {
       album_art_base64: albumArtBase64,
       album_art_url: null,
     };
+
     if (existing) {
       const updates = {
         title: song.title,
@@ -121,8 +116,13 @@ export async function scanArtist(artist, musicPath) {
         year: song.year,
         genre: song.genre,
         duration_seconds: song.duration_seconds,
+        artist_slug: artistSlug,
+        artist: song.artist,
       };
       if (song.album_art_base64 != null) updates.album_art_base64 = song.album_art_base64;
+      if (fileStat) {
+        updates.file_size = fileStat.size;
+      }
       await q.updateSong(existing.id, updates);
       updated++;
     } else {
@@ -131,16 +131,18 @@ export async function scanArtist(artist, musicPath) {
     }
   }
 
-  // Remove DB entries for files that no longer exist on disk
-  const all = await q.getAllByArtist(artist);
+  // Remove DB entries for files that no longer exist on disk (for this artist)
+  const all = await q.getAllByArtist(artistSlug);
+  let removed = 0;
   for (const row of all) {
     if (!seen.has(path.normalize(row.file_path))) {
       await q.deleteSong(row.id);
+      removed++;
     }
   }
 
-  const total = await q.countByArtist(artist);
-  const result = { added, updated, total };
+  const total = await q.countByArtist(artistSlug);
+  const result = { added, updated, removed, total };
   if (parseErrors.length > 0) {
     result.parseErrors = parseErrors;
     result.parseErrorCount = parseErrors.length;

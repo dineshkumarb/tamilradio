@@ -1,5 +1,5 @@
 /**
- * PostgreSQL queries for the local media library and library root directories.
+ * PostgreSQL queries for the unified media library and library root directories.
  */
 
 export function getMediaDb(pool) {
@@ -11,10 +11,13 @@ export function getMediaDb(pool) {
       return rows;
     },
 
-    async addRoot(rootPath, label) {
+    async addRoot(rootPath, label, artistSlug) {
       const { rows } = await pool.query(
-        'INSERT INTO library_roots (path, label) VALUES ($1, $2) ON CONFLICT (path) DO UPDATE SET label = EXCLUDED.label RETURNING *',
-        [rootPath, label || null]
+        `INSERT INTO library_roots (path, label, artist_slug)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (path) DO UPDATE SET label = EXCLUDED.label, artist_slug = EXCLUDED.artist_slug
+         RETURNING *`,
+        [rootPath, label || null, artistSlug || null]
       );
       return rows[0];
     },
@@ -27,28 +30,33 @@ export function getMediaDb(pool) {
 
     async upsertMedia(row) {
       const { rows } = await pool.query(
-        `INSERT INTO media (file_path, title, artist, album, album_artist, genre, year,
-                            track_number, duration, bitrate, sample_rate, file_size, last_modified, date_indexed)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
+        `INSERT INTO media (file_path, title, artist, artist_slug, album, album_artist, genre, year,
+                            track_number, duration, bitrate, sample_rate, file_size, last_modified,
+                            album_art_base64, album_art_url, date_indexed)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, now())
          ON CONFLICT (file_path) DO UPDATE SET
-           title        = EXCLUDED.title,
-           artist       = EXCLUDED.artist,
-           album        = EXCLUDED.album,
-           album_artist = EXCLUDED.album_artist,
-           genre        = EXCLUDED.genre,
-           year         = EXCLUDED.year,
-           track_number = EXCLUDED.track_number,
-           duration     = EXCLUDED.duration,
-           bitrate      = EXCLUDED.bitrate,
-           sample_rate  = EXCLUDED.sample_rate,
-           file_size    = EXCLUDED.file_size,
-           last_modified= EXCLUDED.last_modified,
-           date_indexed = now()
+           title           = EXCLUDED.title,
+           artist          = EXCLUDED.artist,
+           artist_slug     = COALESCE(EXCLUDED.artist_slug, media.artist_slug),
+           album           = EXCLUDED.album,
+           album_artist    = EXCLUDED.album_artist,
+           genre           = EXCLUDED.genre,
+           year            = EXCLUDED.year,
+           track_number    = EXCLUDED.track_number,
+           duration        = EXCLUDED.duration,
+           bitrate         = EXCLUDED.bitrate,
+           sample_rate     = EXCLUDED.sample_rate,
+           file_size       = EXCLUDED.file_size,
+           last_modified   = EXCLUDED.last_modified,
+           album_art_base64= COALESCE(EXCLUDED.album_art_base64, media.album_art_base64),
+           album_art_url   = COALESCE(EXCLUDED.album_art_url, media.album_art_url),
+           date_indexed    = now()
          RETURNING id`,
         [
           row.file_path,
           row.title ?? null,
           row.artist ?? null,
+          row.artist_slug ?? null,
           row.album ?? null,
           row.album_artist ?? null,
           row.genre ?? null,
@@ -59,6 +67,8 @@ export function getMediaDb(pool) {
           row.sample_rate ?? null,
           row.file_size ?? null,
           row.last_modified ?? null,
+          row.album_art_base64 ?? null,
+          row.album_art_url ?? null,
         ]
       );
       return rows[0].id;
@@ -67,6 +77,10 @@ export function getMediaDb(pool) {
     async getByFilePath(filePath) {
       const { rows } = await pool.query('SELECT * FROM media WHERE file_path = $1', [filePath]);
       return rows[0] ?? null;
+    },
+
+    async updateArtistSlug(id, artistSlug) {
+      await pool.query('UPDATE media SET artist_slug = $1, date_indexed = now() WHERE id = $2', [artistSlug, id]);
     },
 
     async deleteByFilePath(filePath) {
@@ -90,7 +104,7 @@ export function getMediaDb(pool) {
 
     async searchByTitle(query) {
       const { rows } = await pool.query(
-        'SELECT * FROM media WHERE title ILIKE $1 ORDER BY title',
+        'SELECT *, ROUND(duration)::int AS duration_seconds FROM media WHERE title ILIKE $1 ORDER BY title',
         [`%${query}%`]
       );
       return rows;
@@ -98,7 +112,7 @@ export function getMediaDb(pool) {
 
     async getByArtist(artist) {
       const { rows } = await pool.query(
-        'SELECT * FROM media WHERE artist ILIKE $1 ORDER BY album, track_number, title',
+        'SELECT *, ROUND(duration)::int AS duration_seconds FROM media WHERE artist ILIKE $1 ORDER BY album, track_number, title',
         [`%${artist}%`]
       );
       return rows;
@@ -106,7 +120,7 @@ export function getMediaDb(pool) {
 
     async getByAlbum(album) {
       const { rows } = await pool.query(
-        'SELECT * FROM media WHERE album ILIKE $1 ORDER BY track_number, title',
+        'SELECT *, ROUND(duration)::int AS duration_seconds FROM media WHERE album ILIKE $1 ORDER BY track_number, title',
         [`%${album}%`]
       );
       return rows;
@@ -114,7 +128,7 @@ export function getMediaDb(pool) {
 
     async getByGenre(genre) {
       const { rows } = await pool.query(
-        'SELECT * FROM media WHERE genre ILIKE $1 ORDER BY artist, album, title',
+        'SELECT *, ROUND(duration)::int AS duration_seconds FROM media WHERE genre ILIKE $1 ORDER BY artist, album, title',
         [`%${genre}%`]
       );
       return rows;
@@ -122,7 +136,7 @@ export function getMediaDb(pool) {
 
     async getAllTracks(limit = 500, offset = 0) {
       const { rows } = await pool.query(
-        'SELECT * FROM media ORDER BY artist, album, track_number, title LIMIT $1 OFFSET $2',
+        'SELECT *, ROUND(duration)::int AS duration_seconds FROM media ORDER BY artist, album, track_number, title LIMIT $1 OFFSET $2',
         [limit, offset]
       );
       return rows;
@@ -131,7 +145,7 @@ export function getMediaDb(pool) {
     async search(query, limit = 200) {
       const pattern = `%${query}%`;
       const { rows } = await pool.query(
-        `SELECT * FROM media
+        `SELECT *, ROUND(duration)::int AS duration_seconds FROM media
          WHERE title ILIKE $1 OR artist ILIKE $1 OR album ILIKE $1 OR genre ILIKE $1
          ORDER BY artist, album, track_number, title
          LIMIT $2`,

@@ -1,5 +1,6 @@
 /**
- * PostgreSQL schema for song library, artists, and metadata cache.
+ * PostgreSQL schema for media library, artists, and metadata cache.
+ * The unified `media` table replaces the old `songs` table.
  */
 
 export async function initSchema(pool) {
@@ -28,25 +29,6 @@ export async function initSchema(pool) {
     CREATE INDEX IF NOT EXISTS idx_artists_slug ON artists(slug);
     CREATE INDEX IF NOT EXISTS idx_artists_sort ON artists(sort_order);
 
-    CREATE TABLE IF NOT EXISTS songs (
-      id SERIAL PRIMARY KEY,
-      artist TEXT NOT NULL,
-      file_path TEXT NOT NULL UNIQUE,
-      title TEXT,
-      album TEXT,
-      year INTEGER,
-      genre TEXT,
-      duration_seconds INTEGER,
-      album_art_base64 TEXT,
-      album_art_url TEXT,
-      created_at TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ DEFAULT now()
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist);
-    CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
-    CREATE INDEX IF NOT EXISTS idx_songs_album ON songs(album);
-
     CREATE TABLE IF NOT EXISTS metadata_cache (
       id SERIAL PRIMARY KEY,
       cache_key TEXT NOT NULL UNIQUE,
@@ -71,6 +53,7 @@ export async function initSchema(pool) {
       id SERIAL PRIMARY KEY,
       path TEXT NOT NULL UNIQUE,
       label TEXT,
+      artist_slug TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
 
@@ -79,6 +62,7 @@ export async function initSchema(pool) {
       file_path TEXT NOT NULL UNIQUE,
       title TEXT,
       artist TEXT,
+      artist_slug TEXT,
       album TEXT,
       album_artist TEXT,
       genre TEXT,
@@ -89,10 +73,13 @@ export async function initSchema(pool) {
       sample_rate INTEGER,
       file_size BIGINT,
       last_modified TIMESTAMPTZ,
+      album_art_base64 TEXT,
+      album_art_url TEXT,
       date_indexed TIMESTAMPTZ DEFAULT now()
     );
 
     CREATE INDEX IF NOT EXISTS idx_media_artist ON media(artist);
+    CREATE INDEX IF NOT EXISTS idx_media_artist_slug ON media(artist_slug);
     CREATE INDEX IF NOT EXISTS idx_media_album ON media(album);
     CREATE INDEX IF NOT EXISTS idx_media_genre ON media(genre);
     CREATE INDEX IF NOT EXISTS idx_media_title ON media(title);
@@ -111,39 +98,36 @@ async function runMigrations(pool) {
   };
 
   await run('001_artists_table', () => Promise.resolve());
+  await run('002_songs_drop_artist_check', () => Promise.resolve());
 
-  await run('002_songs_drop_artist_check', async (p) => {
+  await run('003_merge_songs_into_media', async (p) => {
+    // Add new columns to media if they don't exist (for DBs created before this migration)
+    const addCol = async (col, type) => {
+      try { await p.query(`ALTER TABLE media ADD COLUMN ${col} ${type}`); } catch (_) {}
+    };
+    await addCol('artist_slug', 'TEXT');
+    await addCol('album_art_base64', 'TEXT');
+    await addCol('album_art_url', 'TEXT');
+
+    // Add artist_slug to library_roots if missing
+    try { await p.query('ALTER TABLE library_roots ADD COLUMN artist_slug TEXT'); } catch (_) {}
+
+    // Migrate songs → media if songs table exists
     const { rows } = await p.query(`
       SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'songs')
     `);
-    if (!rows[0]?.exists) return;
-    try {
+    if (rows[0]?.exists) {
       await p.query(`
-          CREATE TABLE songs_new (
-            id SERIAL PRIMARY KEY,
-            artist TEXT NOT NULL,
-            file_path TEXT NOT NULL UNIQUE,
-            title TEXT,
-            album TEXT,
-            year INTEGER,
-            genre TEXT,
-            duration_seconds INTEGER,
-            album_art_base64 TEXT,
-            album_art_url TEXT,
-            created_at TIMESTAMPTZ DEFAULT now(),
-            updated_at TIMESTAMPTZ DEFAULT now()
-          );
-          INSERT INTO songs_new (artist, file_path, title, album, year, genre, duration_seconds, album_art_base64, album_art_url)
-          SELECT artist, file_path, title, album, year, genre, duration_seconds, album_art_base64, album_art_url FROM songs;
-          DROP TABLE songs;
-          ALTER TABLE songs_new RENAME TO songs;
-          CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist);
-          CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
-          CREATE INDEX IF NOT EXISTS idx_songs_album ON songs(album);
-        `);
-    } catch (e) {
-      if (e.code !== '42P01') throw e; // undefined_table
+        INSERT INTO media (file_path, title, artist, artist_slug, album, genre, year, duration, album_art_base64, album_art_url, date_indexed)
+        SELECT file_path, title, artist, artist, album, genre, year, duration_seconds::real, album_art_base64, album_art_url, COALESCE(created_at, now())
+        FROM songs
+        ON CONFLICT (file_path) DO UPDATE SET
+          artist_slug = COALESCE(media.artist_slug, EXCLUDED.artist_slug)
+      `);
+      await p.query('DROP TABLE songs');
     }
+
+    await p.query('CREATE INDEX IF NOT EXISTS idx_media_artist_slug ON media(artist_slug)');
   });
 }
 

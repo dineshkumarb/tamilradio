@@ -87,8 +87,8 @@ export const api = {
     browse: (dirPath) =>
       request(`/api/media/browse?path=${encodeURIComponent(dirPath || '')}`),
     getRoots: () => request('/api/media/roots'),
-    addRoot: (rootPath, label) =>
-      request('/api/media/roots', { method: 'POST', body: JSON.stringify({ path: rootPath, label }) }),
+    addRoot: (rootPath, label, artistSlug) =>
+      request('/api/media/roots', { method: 'POST', body: JSON.stringify({ path: rootPath, label, artist_slug: artistSlug || null }) }),
     removeRoot: (id) => request(`/api/media/roots/${id}`, { method: 'DELETE' }),
     rescan: () => request('/api/media/rescan', { method: 'POST' }),
     abortRescan: () => request('/api/media/rescan/abort', { method: 'POST' }),

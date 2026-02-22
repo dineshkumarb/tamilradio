@@ -7,6 +7,11 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
+let _io = null;
+export function setLibraryIo(io) {
+  _io = io;
+}
+
 async function getMusicPath(artistSlug) {
   const key = artistSlug === 'ilayaraja' ? 'ILAYARAJA_MUSIC_PATH' : artistSlug === 'arrahman' ? 'ARRAHMAN_MUSIC_PATH' : null;
   const fromEnv = key && process.env[key];
@@ -23,7 +28,6 @@ async function isValidArtist(slug) {
   return artist != null;
 }
 
-// Public: song count only (for home page)
 router.get('/:artist/count', async (req, res) => {
   const artist = (req.params.artist || '').toLowerCase();
   if (!(await isValidArtist(artist))) return res.status(400).json({ error: 'Invalid artist' });
@@ -32,7 +36,6 @@ router.get('/:artist/count', async (req, res) => {
   res.json({ count });
 });
 
-// Admin only: full library list
 router.get('/:artist', requireAuth, requireAdmin, async (req, res) => {
   const artist = (req.params.artist || '').toLowerCase();
   if (!(await isValidArtist(artist))) return res.status(400).json({ error: 'Invalid artist' });
@@ -50,7 +53,7 @@ router.post('/scan', requireAuth, requireAdmin, async (req, res) => {
     return res.status(400).json({ error: `No music path configured for ${artist}. Set it in Admin → Artists for this artist, or use ILAYARAJA_MUSIC_PATH / ARRAHMAN_MUSIC_PATH in .env` });
   }
   try {
-    const result = await scanArtist(artist, musicPath);
+    const result = await scanArtist(artist, musicPath, _io);
     res.json(result);
   } catch (err) {
     console.error(err);

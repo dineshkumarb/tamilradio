@@ -22,12 +22,13 @@ function formatSize(bytes) {
 
 // ── Directory Browser Modal ─────────────────────────────────────
 
-function DirectoryBrowser({ onSelect, onClose }) {
+function DirectoryBrowser({ artists, onSelect, onClose }) {
   const [current, setCurrent] = useState('');
   const [parent, setParent] = useState(null);
   const [dirs, setDirs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedArtist, setSelectedArtist] = useState('');
 
   const browse = useCallback(async (dirPath) => {
     setLoading(true);
@@ -76,25 +77,40 @@ function DirectoryBrowser({ onSelect, onClose }) {
                 onClick={() => browse(d.path)}
                 className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 text-neutral-200 text-sm flex items-center gap-2"
               >
-                <span className="text-emerald-400">📁</span> {d.name}
+                <span className="text-emerald-400/70">▸</span> {d.name}
               </button>
             ))
           )}
         </div>
 
-        <div className="p-4 border-t border-white/5 flex gap-2 justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-neutral-700 text-white text-sm hover:bg-neutral-600"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => { onSelect(current); onClose(); }}
-            className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500"
-          >
-            Select this folder
-          </button>
+        <div className="p-4 border-t border-white/5 space-y-3">
+          <div className="flex items-center gap-2">
+            <label className="text-neutral-400 text-sm whitespace-nowrap">Associate with artist:</label>
+            <select
+              value={selectedArtist}
+              onChange={(e) => setSelectedArtist(e.target.value)}
+              className="flex-1 px-2 py-1.5 rounded-lg bg-neutral-800 border border-white/5 text-white text-sm focus:outline-none"
+            >
+              <option value="">(none — general library)</option>
+              {artists.map((a) => (
+                <option key={a.slug} value={a.slug}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-neutral-700 text-white text-sm hover:bg-neutral-600"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => { onSelect(current, selectedArtist || null); onClose(); }}
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500"
+            >
+              Select this folder
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -104,11 +120,11 @@ function DirectoryBrowser({ onSelect, onClose }) {
 // ── Scan Progress Bar ──────────────────────────────────────────
 
 function ScanProgress({ progress, status }) {
-  if (!status) return null;
+  if (!status && !progress) return null;
 
   return (
     <div className="rounded-xl bg-neutral-800/50 border border-white/5 p-4">
-      {status.phase === 'discovering' && (
+      {status?.phase === 'discovering' && (
         <div className="flex items-center gap-3">
           <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
           <span className="text-neutral-300 text-sm">{status.message}</span>
@@ -140,7 +156,9 @@ function ScanSummary({ summary, onDismiss }) {
   return (
     <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-4 flex items-center justify-between">
       <span className="text-emerald-300 text-sm">
-        Scan complete — {summary.added} added, {summary.removed} removed, {summary.updated} updated, {summary.skipped} unchanged. {summary.total} total tracks.
+        Scan complete — {summary.added} added, {summary.removed} removed, {summary.updated} updated
+        {summary.skipped != null ? `, ${summary.skipped} unchanged` : ''}.
+        {' '}{summary.total} total tracks.
         {summary.errors > 0 && ` (${summary.errors} errors)`}
       </span>
       <button onClick={onDismiss} className="text-neutral-400 hover:text-white text-sm ml-4">Dismiss</button>
@@ -173,6 +191,7 @@ function StatsBar({ stats }) {
 
 export default function MediaLibraryPage() {
   const [roots, setRoots] = useState([]);
+  const [artists, setArtists] = useState([]);
   const [showBrowser, setShowBrowser] = useState(false);
   const [tracks, setTracks] = useState([]);
   const [stats, setStats] = useState(null);
@@ -187,7 +206,6 @@ export default function MediaLibraryPage() {
   const [error, setError] = useState(null);
   const socketRef = useRef(null);
 
-  // Socket.IO for scan progress
   useEffect(() => {
     const socket = io(apiOrigin, { path: '/socket.io', autoConnect: true });
     socketRef.current = socket;
@@ -233,10 +251,10 @@ export default function MediaLibraryPage() {
     loadRoots();
     loadTracks();
     loadStats();
+    api.artists.list().then(setArtists).catch(() => setArtists([]));
     api.media.rescanStatus().then((d) => setScanRunning(d.running)).catch(() => {});
   }, [loadRoots, loadTracks, loadStats]);
 
-  // Load filter options when filterType changes
   useEffect(() => {
     setFilterValue('');
     setFilterOptions([]);
@@ -268,9 +286,9 @@ export default function MediaLibraryPage() {
     } catch (err) { setError(err.message); }
   }, [filterType, loadTracks]);
 
-  const handleAddRoot = async (dirPath) => {
+  const handleAddRoot = async (dirPath, artistSlug) => {
     try {
-      await api.media.addRoot(dirPath);
+      await api.media.addRoot(dirPath, null, artistSlug);
       await loadRoots();
     } catch (err) { setError(err.message); }
   };
@@ -293,6 +311,12 @@ export default function MediaLibraryPage() {
 
   const handleAbort = async () => {
     try { await api.media.abortRescan(); } catch (err) { setError(err.message); }
+  };
+
+  const artistNameBySlug = (slug) => {
+    if (!slug) return null;
+    const a = artists.find((x) => x.slug === slug);
+    return a?.name || slug;
   };
 
   return (
@@ -327,18 +351,23 @@ export default function MediaLibraryPage() {
             </button>
           </div>
           {roots.length === 0 ? (
-            <p className="text-neutral-500 text-sm">No directories added yet. Add a folder to start scanning.</p>
+            <p className="text-neutral-500 text-sm">No directories added yet. Add a folder to start scanning. Artist directories are also scanned automatically.</p>
           ) : (
             <ul className="space-y-2">
               {roots.map((r) => (
                 <li key={r.id} className="flex items-center justify-between bg-neutral-800/50 rounded-lg px-3 py-2">
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-white text-sm font-medium">{r.label || r.path}</span>
-                    <span className="block text-neutral-500 text-xs">{r.path}</span>
+                    <span className="block text-neutral-500 text-xs truncate">{r.path}</span>
+                    {r.artist_slug && (
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-xs">
+                        Artist: {artistNameBySlug(r.artist_slug)}
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={() => handleRemoveRoot(r.id)}
-                    className="text-red-400 hover:text-red-300 text-sm"
+                    className="text-red-400 hover:text-red-300 text-sm ml-2 shrink-0"
                   >
                     Remove
                   </button>
@@ -349,7 +378,7 @@ export default function MediaLibraryPage() {
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleRescan}
-              disabled={scanRunning || roots.length === 0}
+              disabled={scanRunning}
               className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 disabled:opacity-50"
             >
               {scanRunning ? 'Scanning…' : 'Rescan Library'}
@@ -363,9 +392,11 @@ export default function MediaLibraryPage() {
               </button>
             )}
           </div>
+          <p className="text-neutral-600 text-xs">
+            Rescan indexes all folders above plus any artist-configured music paths. Unchanged files are skipped.
+          </p>
         </section>
 
-        {/* Scan progress */}
         {scanRunning && <ScanProgress progress={scanProgress} status={scanStatus} />}
         <ScanSummary summary={scanSummary} onDismiss={() => setScanSummary(null)} />
 
@@ -429,6 +460,11 @@ export default function MediaLibraryPage() {
                     <td className="p-3 text-neutral-500 text-sm">{idx + 1}</td>
                     <td className="p-3">
                       <span className="text-white font-medium text-sm">{t.title || '—'}</span>
+                      {t.artist_slug && (
+                        <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-white/5 text-neutral-500 text-[10px]">
+                          {t.artist_slug}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3 hidden sm:table-cell text-neutral-300 text-sm">{t.artist || '—'}</td>
                     <td className="p-3 hidden md:table-cell text-neutral-400 text-sm">{t.album || '—'}</td>
@@ -452,6 +488,7 @@ export default function MediaLibraryPage() {
 
       {showBrowser && (
         <DirectoryBrowser
+          artists={artists}
           onSelect={handleAddRoot}
           onClose={() => setShowBrowser(false)}
         />

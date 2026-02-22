@@ -50,7 +50,7 @@ router.get('/roots', requireAuth, requireAdmin, async (_req, res) => {
 });
 
 router.post('/roots', requireAuth, requireAdmin, async (req, res) => {
-  const { path: rootPath, label } = req.body || {};
+  const { path: rootPath, label, artist_slug: artistSlug } = req.body || {};
   if (!rootPath) return res.status(400).json({ error: 'path is required' });
 
   const resolved = path.resolve(rootPath);
@@ -62,7 +62,7 @@ router.post('/roots', requireAuth, requireAdmin, async (req, res) => {
   }
 
   const db = getMediaQueries();
-  const root = await db.addRoot(resolved, label || path.basename(resolved));
+  const root = await db.addRoot(resolved, label || path.basename(resolved), artistSlug || null);
   res.json(root);
 });
 
