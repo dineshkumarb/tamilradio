@@ -55,6 +55,9 @@ async function extractMetadata(filePath) {
     }
   }
 
+  const safeInt = (v) => (Number.isFinite(v) ? v : null);
+  const safeFloat = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+
   return {
     file_path: filePath,
     title: c.title || path.basename(filePath, path.extname(filePath)),
@@ -62,11 +65,11 @@ async function extractMetadata(filePath) {
     album: c.album ?? null,
     album_artist: c.albumartist ?? null,
     genre: c.genre?.length ? c.genre[0] : null,
-    year: c.year ?? null,
-    track_number: c.track?.no ?? null,
-    duration: f.duration != null ? Math.round(f.duration * 100) / 100 : null,
-    bitrate: f.bitrate != null ? Math.round(f.bitrate / 1000) : null,
-    sample_rate: f.sampleRate ?? null,
+    year: safeInt(c.year),
+    track_number: safeInt(c.track?.no),
+    duration: safeFloat(f.duration),
+    bitrate: f.bitrate != null ? safeInt(Math.round(f.bitrate / 1000)) : null,
+    sample_rate: safeInt(f.sampleRate),
     file_size: fileStat.size,
     last_modified: fileStat.mtime,
     album_art_base64: albumArtBase64,

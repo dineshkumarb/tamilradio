@@ -83,7 +83,8 @@ export async function scanArtist(artistSlug, musicPath, io) {
     const common = meta.common;
     const format = meta.format;
     const fileStat = await stat(normalized).catch(() => null);
-    const duration = format.duration != null ? Math.round(format.duration * 100) / 100 : null;
+    const safeInt = (v) => (Number.isFinite(v) ? v : null);
+    const duration = Number.isFinite(format.duration) ? Math.round(format.duration * 100) / 100 : null;
 
     let albumArtBase64 = null;
     if (common.picture?.length) {
@@ -102,7 +103,7 @@ export async function scanArtist(artistSlug, musicPath, io) {
       file_path: normalized,
       title: common.title || path.basename(normalized, path.extname(normalized)),
       album: common.album ?? null,
-      year: common.year ?? null,
+      year: safeInt(common.year),
       genre: common.genre?.length ? common.genre[0] : null,
       duration_seconds: duration,
       album_art_base64: albumArtBase64,
