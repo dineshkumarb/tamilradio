@@ -16,6 +16,7 @@ import nowplayingRoutes from './routes/nowplaying.js';
 import authRoutes from './routes/auth.js';
 import artistRoutes from './routes/artists.js';
 import adminRoutes from './routes/admin.js';
+import mediaLibraryRoutes, { setMediaIo } from './routes/mediaLibrary.js';
 import { setIo, broadcastNowPlaying } from './services/socketBroadcast.js';
 import { getAuthDb } from './db/index.js';
 
@@ -42,6 +43,9 @@ async function main() {
   app.use('/api/library', libraryRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/nowplaying', nowplayingRoutes);
+  app.use('/api/media', mediaLibraryRoutes);
+
+  setMediaIo(io);
 
   // Production: serve built frontend and SPA fallback
   const publicDir = path.join(__dirname, '../public');

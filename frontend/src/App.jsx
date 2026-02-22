@@ -9,6 +9,7 @@ import LibraryPage from './pages/LibraryPage';
 import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
 import ArtistsAdminPage from './pages/ArtistsAdminPage';
+import MediaLibraryPage from './pages/MediaLibraryPage';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminPage /></ProtectedRoute>} />
           <Route path="/admin/artists" element={<ProtectedRoute requireAdmin><ArtistsAdminPage /></ProtectedRoute>} />
+          <Route path="/admin/media-library" element={<ProtectedRoute requireAdmin><MediaLibraryPage /></ProtectedRoute>} />
           <Route
             path="/library/:artist"
             element={

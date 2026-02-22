@@ -83,4 +83,26 @@ export const api = {
     validatePath: (dirPath) =>
       request(`/api/admin/validate-path?path=${encodeURIComponent(dirPath || '')}`),
   },
+  media: {
+    browse: (dirPath) =>
+      request(`/api/media/browse?path=${encodeURIComponent(dirPath || '')}`),
+    getRoots: () => request('/api/media/roots'),
+    addRoot: (rootPath, label) =>
+      request('/api/media/roots', { method: 'POST', body: JSON.stringify({ path: rootPath, label }) }),
+    removeRoot: (id) => request(`/api/media/roots/${id}`, { method: 'DELETE' }),
+    rescan: () => request('/api/media/rescan', { method: 'POST' }),
+    abortRescan: () => request('/api/media/rescan/abort', { method: 'POST' }),
+    rescanStatus: () => request('/api/media/rescan/status'),
+    tracks: (limit, offset) =>
+      request(`/api/media/tracks?limit=${limit || 500}&offset=${offset || 0}`),
+    search: (q) => request(`/api/media/search?q=${encodeURIComponent(q)}`),
+    searchByTitle: (q) => request(`/api/media/search/title?q=${encodeURIComponent(q)}`),
+    byArtist: (artist) => request(`/api/media/by-artist?artist=${encodeURIComponent(artist)}`),
+    byAlbum: (album) => request(`/api/media/by-album?album=${encodeURIComponent(album)}`),
+    byGenre: (genre) => request(`/api/media/by-genre?genre=${encodeURIComponent(genre)}`),
+    stats: () => request('/api/media/stats'),
+    artists: () => request('/api/media/artists'),
+    albums: () => request('/api/media/albums'),
+    genres: () => request('/api/media/genres'),
+  },
 };

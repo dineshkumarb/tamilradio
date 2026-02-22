@@ -3,6 +3,7 @@ import { initSchema } from './schema.js';
 import { getDb } from './queries.js';
 import { getAuthQueries } from './authQueries.js';
 import { getArtistQueries } from './artistQueries.js';
+import { getMediaDb } from './mediaQueries.js';
 
 const { Pool } = pg;
 
@@ -49,4 +50,9 @@ export function getAuthDb() {
 export function getArtistDb() {
   if (!pool) throw new Error('Database not initialized. Call await openDb() first.');
   return getArtistQueries(pool);
+}
+
+export function getMediaQueries() {
+  if (!pool) throw new Error('Database not initialized. Call await openDb() first.');
+  return getMediaDb(pool);
 }

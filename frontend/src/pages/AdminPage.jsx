@@ -65,11 +65,17 @@ export default function AdminPage() {
             );
           })}
         </div>
-        <p className="mt-6">
+        <div className="mt-6 flex flex-col sm:flex-row gap-4">
           <Link to="/admin/artists" className="text-neutral-500 hover:text-white text-sm">
             Manage artists →
           </Link>
-        </p>
+          <Link
+            to="/admin/media-library"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-b from-neutral-800 to-neutral-900 border border-white/5 text-emerald-400 hover:text-emerald-300 text-sm font-medium transition"
+          >
+            Media Library — Browse, scan &amp; index local files
+          </Link>
+        </div>
       </main>
     </div>
   );

@@ -66,6 +66,36 @@ export async function initSchema(pool) {
       name TEXT NOT NULL UNIQUE,
       applied_at TIMESTAMPTZ DEFAULT now()
     );
+
+    CREATE TABLE IF NOT EXISTS library_roots (
+      id SERIAL PRIMARY KEY,
+      path TEXT NOT NULL UNIQUE,
+      label TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS media (
+      id SERIAL PRIMARY KEY,
+      file_path TEXT NOT NULL UNIQUE,
+      title TEXT,
+      artist TEXT,
+      album TEXT,
+      album_artist TEXT,
+      genre TEXT,
+      year INTEGER,
+      track_number INTEGER,
+      duration REAL,
+      bitrate INTEGER,
+      sample_rate INTEGER,
+      file_size BIGINT,
+      last_modified TIMESTAMPTZ,
+      date_indexed TIMESTAMPTZ DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_artist ON media(artist);
+    CREATE INDEX IF NOT EXISTS idx_media_album ON media(album);
+    CREATE INDEX IF NOT EXISTS idx_media_genre ON media(genre);
+    CREATE INDEX IF NOT EXISTS idx_media_title ON media(title);
   `);
 
   await runMigrations(pool);
